@@ -40,6 +40,8 @@ export default function StaffPage() {
         .from('profiles')
         .select('*')
         .in('role', ['STAFF', 'ADMIN'])
+        // TODO: Re-enable soft delete filter when Supabase local schema cache issue is resolved
+        // .eq('status', 'active') // <-- Temporarily commented out due to "column does not exist" error
         .order('full_name', { ascending: true });
 
       if (fetchError) {
@@ -84,27 +86,40 @@ export default function StaffPage() {
     toast.success('Staff member details updated successfully!');
   };
 
-  // Delete Handler: Confirm and delete profile (simple delete for now)
+  // Delete Handler: Update status to 'inactive' (Soft Delete)
   const handleDelete = async (id: string) => {
-    if (window.confirm('Are you sure you want to delete this staff/admin profile? This might affect associated records (incidents, etc.) and cannot be easily undone.')) {
+    // TODO: Re-enable soft delete logic (update status) when filter issue is resolved.
+    // if (window.confirm('Are you sure you want to deactivate this staff/admin profile? They will no longer appear in lists or be assignable.')) {
+    // Temporarily reverting to hard delete due to status filter issues.
+    if (window.confirm('Are you sure you want to PERMANENTLY DELETE this staff/admin profile? This cannot be undone and might break related records.')) {
       setDeleting(true);
       try {
-        // NOTE: This is a simple delete. Consider archiving or disabling instead
-        // Also, deleting the associated Auth user requires admin privileges
-        // and usually happens server-side.
+        // Update the status to 'inactive' instead of deleting
+        // const { error: updateError } = await supabase
+        //   .from('profiles')
+        //   .update({ status: 'inactive' })
+        //   .eq('id', id);
+
+        // Temporarily revert to hard delete
         const { error: deleteError } = await supabase
           .from('profiles')
           .delete()
           .eq('id', id);
 
+        // if (updateError) {
+        //   throw updateError;
+        // }
         if (deleteError) {
           throw deleteError;
         }
 
-        toast.success('Staff/Admin profile deleted successfully!');
+        // toast.success('Staff/Admin profile deactivated successfully!');
+        toast.success('Staff/Admin profile DELETED successfully! (Temporary behavior)');
         fetchStaff(); // Refresh the list
 
       } catch (error: any) {
+        // console.error('Error deactivating staff profile:', error);
+        // toast.error(`Failed to deactivate staff profile: ${error.message}`);
         console.error('Error deleting staff profile:', error);
         toast.error(`Failed to delete staff profile: ${error.message}`);
       } finally {

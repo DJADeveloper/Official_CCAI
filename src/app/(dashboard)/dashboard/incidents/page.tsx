@@ -67,6 +67,8 @@ export default function IncidentsPage() {
           .from('profiles')
           .select('id, full_name, email')
           .in('role', ['ADMIN', 'STAFF'])
+          // TODO: Re-enable soft delete filter when Supabase local schema cache issue is resolved
+          // .eq('status', 'active') // <-- Temporarily commented out due to "column does not exist" error
           .order('full_name'),
       ]);
 
