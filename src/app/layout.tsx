@@ -1,10 +1,11 @@
-import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import ClientLayout from "./client-layout";
+import { Metadata } from "next";
 
 const inter = Inter({ subsets: ["latin"] });
 
+// Move metadata outside of the client component
 export const metadata: Metadata = {
   title: "Assisted Living Facility Management System",
   description: "A comprehensive management system for assisted living facilities",

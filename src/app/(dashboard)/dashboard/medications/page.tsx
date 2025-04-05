@@ -11,8 +11,9 @@ import {
   Paper,
   Button,
   Chip,
+  Tooltip,
 } from '@mui/material';
-import { DataGrid, GridColDef, GridActionsCellItem, GridValueGetterParams } from '@mui/x-data-grid';
+import { DataGrid, GridColDef, GridActionsCellItem, GridValueGetterParams, GridRenderCellParams } from '@mui/x-data-grid';
 import { format } from 'date-fns';
 import AddTaskIcon from '@mui/icons-material/AddTask'; // Icon for logging dose
 import HistoryIcon from '@mui/icons-material/History'; // Icon for viewing history
@@ -20,6 +21,10 @@ import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline'; // Icon
 import toast from 'react-hot-toast';
 import LogMedicationDoseDialog from '@/components/dialogs/LogMedicationDoseDialog'; // Import the dialog
 import CreateMedicationDialog from '@/components/dialogs/CreateMedicationDialog'; // Import the new dialog
+import Link from 'next/link';
+import EditIcon from '@mui/icons-material/Edit';
+import DeleteIcon from '@mui/icons-material/Delete';
+import NoteAddIcon from '@mui/icons-material/NoteAdd'; // Icon for Log Dose
 
 // Define types (adapt based on actual schema and joins)
 type MedicationWithDetails = {
@@ -186,8 +191,8 @@ export default function MedicationsPage() {
     {
       field: 'resident_name',
       headerName: 'Resident',
-      width: 180,
-      valueGetter: (params: GridValueGetterParams) => 
+      width: 170,
+      valueGetter: (params: GridValueGetterParams) =>
         params.row.residents?.profiles?.full_name || 'N/A',
     },
     {
@@ -201,11 +206,31 @@ export default function MedicationsPage() {
     { field: 'dosage', headerName: 'Dosage', width: 100 },
     { field: 'frequency', headerName: 'Frequency', width: 150 },
     {
-      field: 'prescriber_name',
-      headerName: 'Prescriber',
-      width: 150,
-      valueGetter: (params: GridValueGetterParams) => 
-        params.row.prescriber?.full_name || 'N/A',
+      field: 'prescribed_by',
+      headerName: 'Prescribed By',
+      width: 170,
+      renderCell: (params: GridRenderCellParams) => {
+        const prescriber = params.row.prescriber;
+        const name = prescriber?.full_name;
+        const profileId = params.row.prescribed_by;
+
+        if (!profileId || !name) return <Typography variant="body2">N/A</Typography>;
+
+        return (
+          <Link href={`/dashboard/profile/${profileId}`} passHref style={{ textDecoration: 'none' }}>
+            <Typography
+              variant="body2"
+              component="a"
+              sx={{
+                color: 'text.primary',
+                '&:hover': { textDecoration: 'underline' }
+              }}
+            >
+              {name}
+            </Typography>
+          </Link>
+        );
+      },
     },
     {
       field: 'start_date',
@@ -281,6 +306,7 @@ export default function MedicationsPage() {
            rows={medications}
            columns={columns}
            loading={loading}
+           getRowHeight={() => 'auto'}
            initialState={{
              pagination: {
                paginationModel: { page: 0, pageSize: 10 },

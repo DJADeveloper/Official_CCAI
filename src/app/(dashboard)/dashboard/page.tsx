@@ -16,10 +16,15 @@ import {
   ListItem,
   ListItemText,
   ListItemIcon,
+  ListItemAvatar,
   CircularProgress,
   Grid,
   Select,
   MenuItem,
+  Avatar,
+  Stack,
+  LinearProgress,
+  Divider
 } from '@mui/material';
 import {
   People,
@@ -30,15 +35,23 @@ import {
   CalendarToday,
   AccessTime,
   Logout,
+  ArrowUpward,
+  ArrowDownward
 } from '@mui/icons-material';
 import { supabase } from '@/lib/supabase/client';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip, ResponsiveContainer } from 'recharts';
 import CreateResidentDialog from '@/components/dialogs/CreateResidentDialog';
 import CreateStaffDialog from '@/components/dialogs/CreateStaffDialog';
 import CreateFamilyDialog from '@/components/dialogs/CreateFamilyDialog';
 import CreateIncidentDialog from '@/components/dialogs/CreateIncidentDialog';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import toast from 'react-hot-toast';
+import PeopleIcon from '@mui/icons-material/PeopleOutline';
+import WarningIcon from '@mui/icons-material/WarningAmber';
+import EventIcon from '@mui/icons-material/Event';
+import GroupIcon from '@mui/icons-material/Group';
+import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
+import Link from 'next/link';
 
 // Access environment variables
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -432,6 +445,12 @@ export default function DashboardPage() {
   const isAdmin = profile?.role === 'ADMIN';
   const isStaff = profile?.role === 'STAFF';
 
+  // Calculate counts for widgets
+  const residentCount = residents.length;
+  const openIncidentCount = incidents.filter(i => i.status !== 'RESOLVED').length;
+  const eventCount = events.length;
+  const staffCount = potentialAssignees.length;
+
   return (
     <Box>
       {/* Debug Info */}
@@ -489,62 +508,127 @@ export default function DashboardPage() {
         ))}
       </Box>
 
-      {/* Trends Chart and Recent Activity */}
-      <Box sx={{ 
-        display: 'grid',
-        gridTemplateColumns: {
-          xs: '1fr',
-          md: '2fr 1fr'
-        },
-        gap: 3,
-        mb: 3
-      }}>
-        <Paper sx={{ p: 2 }}>
-          <Typography variant="h6" gutterBottom>
-            Trends
-          </Typography>
-          <Box sx={{ height: 300 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={trendsData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip />
-                <Line
-                  type="monotone"
-                  dataKey="incidents"
-                  stroke="#8884d8"
-                  name="Incidents"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="events"
-                  stroke="#82ca9d"
-                  name="Events"
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </Box>
-        </Paper>
-        <Paper sx={{ p: 2 }}>
-          <Typography variant="h6" gutterBottom>
-            Recent Activity
-          </Typography>
-          <List>
-            {events.map((event) => (
-              <ListItem key={event.id}>
-                <ListItemIcon>
-                  <Event />
-                </ListItemIcon>
-                <ListItemText
-                  primary={event.title}
-                  secondary={new Date(event.start_time).toLocaleString()}
-                />
-              </ListItem>
-            ))}
-          </List>
-        </Paper>
-      </Box>
+      {/* Stats Cards */}
+      <Grid container spacing={3} sx={{ mb: 4 }}>
+        <Grid item xs={12} sm={6} md={3}>
+          <Card sx={{ 
+            bgcolor: 'background.paper',
+            boxShadow: 2,
+            borderRadius: 2,
+            p: 1
+          }}>
+            <CardContent>
+              <Stack direction="row" spacing={2} alignItems="center">
+                <Avatar sx={{ bgcolor: 'primary.light', p: 2 }}>
+                  <PeopleIcon />
+                </Avatar>
+                <Box>
+                  <Typography color="text.secondary" variant="body2">
+                    Daily Visitors
+                  </Typography>
+                  <Typography variant="h4" sx={{ mt: 1, fontWeight: 'bold' }}>
+                    1,352
+                  </Typography>
+                  <Stack direction="row" alignItems="center" sx={{ mt: 1 }}>
+                    <ArrowUpward color="success" sx={{ fontSize: 16 }} />
+                    <Typography variant="body2" color="success.main" sx={{ ml: 0.5 }}>
+                      +12.5%
+                    </Typography>
+                  </Stack>
+                </Box>
+              </Stack>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Add similar cards for other stats */}
+      </Grid>
+
+      {/* Charts Section */}
+      <Grid container spacing={3} sx={{ mb: 4 }}>
+        <Grid item xs={12} md={8}>
+          <Paper sx={{ p: 3, borderRadius: 2 }}>
+            <Typography variant="h6" gutterBottom>
+              Sales Overview
+            </Typography>
+            <Box sx={{ height: 300, mt: 2 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={trendsData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" />
+                  <YAxis />
+                  <ChartTooltip />
+                  <Line 
+                    type="monotone" 
+                    dataKey="incidents" 
+                    stroke="#8884d8" 
+                    strokeWidth={2}
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="events" 
+                    stroke="#82ca9d" 
+                    strokeWidth={2}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </Box>
+          </Paper>
+        </Grid>
+
+        <Grid item xs={12} md={4}>
+          <Paper sx={{ p: 3, borderRadius: 2, height: '100%' }}>
+            <Typography variant="h6" gutterBottom>
+              Customer Reviews
+            </Typography>
+            <Box sx={{ mt: 2 }}>
+              <Typography variant="h3" sx={{ textAlign: 'center', fontWeight: 'bold' }}>
+                4.5/5
+              </Typography>
+              <Box sx={{ mt: 2 }}>
+                {[5,4,3,2,1].map((rating) => (
+                  <Box key={rating} sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                    <Typography sx={{ minWidth: 50 }}>{rating} Star</Typography>
+                    <LinearProgress 
+                      variant="determinate" 
+                      value={rating === 5 ? 50 : rating === 4 ? 40 : rating === 3 ? 30 : rating === 2 ? 20 : 10} 
+                      sx={{ flexGrow: 1, mx: 1 }}
+                    />
+                    <Typography variant="body2">
+                      {rating === 5 ? '50%' : rating === 4 ? '40%' : rating === 3 ? '30%' : rating === 2 ? '20%' : '10%'}
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
+            </Box>
+          </Paper>
+        </Grid>
+      </Grid>
+
+      {/* Recent Activity */}
+      <Grid container spacing={3}>
+        <Grid item xs={12} md={6}>
+          <Paper sx={{ p: 3, borderRadius: 2 }}>
+            <Typography variant="h6" gutterBottom>
+              Recent Orders
+            </Typography>
+            <List>
+              {/* Map through your orders data */}
+            </List>
+          </Paper>
+        </Grid>
+
+        <Grid item xs={12} md={6}>
+          <Paper sx={{ p: 3, borderRadius: 2 }}>
+            <Typography variant="h6" gutterBottom>
+              Top Sellers
+            </Typography>
+            <List>
+              {/* Map through your top sellers data */}
+            </List>
+          </Paper>
+        </Grid>
+      </Grid>
 
       {/* Residents List */}
       <Paper sx={{ p: 2, mb: 3 }}>
@@ -560,18 +644,39 @@ export default function DashboardPage() {
             </Button>
           )}
         </Box>
-        <List>
-          {residents.slice(0, 5).map((resident) => (
-            <ListItem key={resident.id}>
-              <ListItemIcon>
-                <People />
-              </ListItemIcon>
-              <ListItemText
-                primary={resident.profiles?.full_name || `Profile ID: ${resident.profile_id}`}
-                secondary={`Room ${resident.room_number || 'N/A'} - Care Level: ${resident.care_level || 'N/A'}`}
-              />
-            </ListItem>
-          ))}
+        <List dense>
+          {residents.slice(0, 5).map((resident) => {
+             const name = resident.profiles?.full_name;
+             const email = resident.profiles?.email;
+             const profileId = resident.profiles?.id;
+             return (
+              <ListItem key={resident.id} disablePadding>
+                <ListItemAvatar>
+                  <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.light' }}>
+                     {name ? name[0]?.toUpperCase() : '-'}
+                  </Avatar>
+                </ListItemAvatar>
+                <ListItemText
+                  primary={
+                    <Link href={`/dashboard/profile/${profileId}`} passHref style={{ textDecoration: 'none' }}>
+                      <Typography 
+                        component="a"
+                        sx={{ 
+                           color: 'text.primary', 
+                           '&:hover': { textDecoration: 'underline' } 
+                        }}
+                      >
+                         {name || `Profile ID: ${resident.profile_id}`}
+                      </Typography>
+                    </Link>
+                  }
+                  secondary={`Room ${resident.room_number || 'N/A'} - ${email || 'No Email'}`}
+                  primaryTypographyProps={{ fontWeight: 500 }}
+                  secondaryTypographyProps={{ variant: 'caption' }}
+                />
+              </ListItem>
+             );
+           })}
         </List>
       </Paper>
 
@@ -631,6 +736,69 @@ export default function DashboardPage() {
           </List>
         </Paper>
       </Box>
+
+      {/* Summary Widgets Grid */}
+      <Grid container spacing={3} sx={{ mb: 4 }}>
+        {/* Residents Widget */}
+        <Grid item xs={12} sm={6} md={3}>
+          <Card>
+            <CardContent>
+              <Stack direction="row" spacing={2} alignItems="center">
+                <Avatar sx={{ bgcolor: 'primary.light', color: 'primary.dark' }}><PeopleIcon /></Avatar>
+                <Box>
+                  <Typography color="text.secondary" gutterBottom>Total Residents</Typography>
+                  <Typography variant="h4">{residentCount}</Typography>
+                </Box>
+              </Stack>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Open Incidents Widget */}
+        <Grid item xs={12} sm={6} md={3}>
+          <Card>
+            <CardContent>
+              <Stack direction="row" spacing={2} alignItems="center">
+                <Avatar sx={{ bgcolor: 'warning.light', color: 'warning.dark' }}><WarningIcon /></Avatar>
+                <Box>
+                  <Typography color="text.secondary" gutterBottom>Open Incidents</Typography>
+                  <Typography variant="h4">{openIncidentCount}</Typography>
+                </Box>
+              </Stack>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Events Widget */}
+        <Grid item xs={12} sm={6} md={3}>
+          <Card>
+            <CardContent>
+              <Stack direction="row" spacing={2} alignItems="center">
+                <Avatar sx={{ bgcolor: 'info.light', color: 'info.dark' }}><EventIcon /></Avatar>
+                <Box>
+                  <Typography color="text.secondary" gutterBottom>Upcoming Events</Typography>
+                  <Typography variant="h4">{eventCount}</Typography>
+                </Box>
+              </Stack>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Staff Widget */}
+        <Grid item xs={12} sm={6} md={3}>
+          <Card>
+            <CardContent>
+              <Stack direction="row" spacing={2} alignItems="center">
+                 <Avatar sx={{ bgcolor: 'secondary.light', color: 'secondary.dark' }}><GroupIcon /></Avatar>
+                 <Box>
+                  <Typography color="text.secondary" gutterBottom>Active Staff</Typography>
+                  <Typography variant="h4">{staffCount}</Typography>
+                 </Box>
+              </Stack>
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
 
       {/* Add the Dialog Components */}
       <CreateResidentDialog

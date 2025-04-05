@@ -2,11 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase/client';
-import { Box, Typography, CircularProgress, Alert, Paper, Button } from '@mui/material';
-import { DataGrid, GridColDef, GridActionsCellItem, GridValueGetterParams } from '@mui/x-data-grid';
+import { Box, Typography, CircularProgress, Alert, Paper, Button, Avatar, Stack, Chip, Tooltip } from '@mui/material';
+import { DataGrid, GridColDef, GridActionsCellItem, GridValueGetterParams, GridRenderCellParams } from '@mui/x-data-grid';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import toast from 'react-hot-toast';
+import Link from 'next/link';
 import UpdateResidentDialog from '@/components/dialogs/UpdateResidentDialog';
 
 // Define types (adapt if you have proper types generated)
@@ -131,30 +132,74 @@ export default function ResidentsPage() {
   const columns: GridColDef[] = [
     {
       field: 'profiles.full_name',
-      headerName: 'Full Name',
-      width: 200,
-      valueGetter: (params: GridValueGetterParams) => params.row.profiles?.full_name || 'N/A',
+      headerName: 'Name',
+      minWidth: 220,
+      flex: 1,
+      renderCell: (params: GridRenderCellParams) => {
+        const name = params.row.profiles?.full_name;
+        const email = params.row.profiles?.email;
+        const profileId = params.row.profiles?.id;
+        return (
+          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ py: 1 }}>
+            <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.light' }}>
+              {name ? name[0]?.toUpperCase() : '-'}
+            </Avatar>
+            <Box>
+              <Link href={`/dashboard/profile/${profileId}`} passHref style={{ textDecoration: 'none' }}>
+                <Typography 
+                  variant="body2" 
+                  fontWeight={500} 
+                  component="a"
+                  sx={{ 
+                    color: 'text.primary', 
+                    '&:hover': { textDecoration: 'underline' } 
+                  }}
+                >
+                  {name || 'N/A'}
+                </Typography>
+              </Link>
+              <Typography variant="caption" color="text.secondary">
+                {email || 'No Email'}
+              </Typography>
+            </Box>
+          </Stack>
+        );
+      },
     },
-    { field: 'room_number', headerName: 'Room', width: 100 },
-    { field: 'care_level', headerName: 'Care Level', width: 120 },
     {
-        field: 'profiles.email',
-        headerName: 'Email',
-        width: 250,
-        valueGetter: (params: GridValueGetterParams) => params.row.profiles?.email || 'N/A',
+      field: 'care_level',
+      headerName: 'Care Level',
+      minWidth: 120,
+      renderCell: (params: GridRenderCellParams) => {
+        const level = params.value as ResidentWithProfile['care_level'];
+        let color: "error" | "warning" | "success" | "default" = 'default';
+        if (level === 'HIGH') color = 'error';
+        else if (level === 'MEDIUM') color = 'warning';
+        else if (level === 'LOW') color = 'success';
+
+        return (
+          <Chip label={level || 'N/A'} color={color} size="small" variant="outlined" />
+        );
+      },
     },
+    { field: 'room_number', headerName: 'Room', minWidth: 80 },
     {
-        field: 'medical_conditions',
-        headerName: 'Medical Conditions',
-        width: 250,
-        valueGetter: (params: GridValueGetterParams) => params.row.medical_conditions?.join(', ') || 'None',
+      field: 'medical_conditions',
+      headerName: 'Medical Conditions',
+      minWidth: 200,
+      valueGetter: (params: GridValueGetterParams) => params.row.medical_conditions?.join(', ') || '-',
+      renderCell: (params: GridRenderCellParams) => (
+        <Tooltip title={params.value || '-'}>
+          <Typography variant="body2" noWrap>{params.value || '-'}</Typography>
+        </Tooltip>
+      ),
     },
     {
       field: 'actions',
       type: 'actions',
       headerName: 'Actions',
-      width: 100,
-      cellClassName: 'actions',
+      minWidth: 100,
+      align: 'right',
       getActions: ({ id, row }) => [
         <GridActionsCellItem
           key="update"
@@ -169,7 +214,7 @@ export default function ResidentsPage() {
           icon={<DeleteIcon />}
           label="Delete"
           onClick={() => handleDelete(id as string, row.profile_id as string | undefined)}
-          color="inherit"
+          color="error"
           disabled={deleting}
         />,
       ],
@@ -190,15 +235,16 @@ export default function ResidentsPage() {
   }
 
   return (
-    <Paper sx={{ p: 3, height: '80vh', width: '100%' }}>
+    <Paper sx={{ p: 3, height: '85vh', width: '100%' }}>
       <Typography variant="h4" gutterBottom>
         Manage Residents
       </Typography>
-      <Box sx={{ height: 'calc(100% - 60px)', width: '100%' }}>
+      <Box sx={{ height: 'calc(100% - 70px)', width: '100%' }}>
          <DataGrid
            rows={residents}
            columns={columns}
            loading={loading || deleting}
+           getRowHeight={() => 'auto'}
            initialState={{
              pagination: {
                paginationModel: { page: 0, pageSize: 10 },
@@ -207,6 +253,35 @@ export default function ResidentsPage() {
            pageSizeOptions={[5, 10, 20]}
            checkboxSelection={false}
            disableRowSelectionOnClick
+           sx={{
+             border: 0,
+             '& .MuiDataGrid-columnHeaders': {
+               borderBottom: '1px solid',
+               borderColor: 'divider',
+             },
+             '& .MuiDataGrid-columnHeaderTitle': {
+               fontWeight: 600,
+               textTransform: 'none',
+             },
+             '& .MuiDataGrid-cell': {
+               borderBottom: '1px solid',
+               borderColor: 'divider',
+               py: 0.5,
+             },
+             '& .MuiDataGrid-footerContainer': {
+               borderTop: '1px solid',
+               borderColor: 'divider',
+             },
+             '& .MuiDataGrid-columnSeparator': {
+               display: 'none',
+             },
+             '& .MuiDataGrid-cell:focus, & .MuiDataGrid-cell:focus-within': {
+               outline: 'none',
+             },
+             '& .MuiDataGrid-columnHeader:focus, & .MuiDataGrid-columnHeader:focus-within': {
+               outline: 'none',
+             },
+           }}
          />
       </Box>
 

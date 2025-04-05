@@ -25,11 +25,21 @@ const authRoutes = [
 ];
 
 export async function middleware(request: NextRequest) {
+  const res = NextResponse.next();
+  
+  const supabase = createMiddlewareClient(
+    { req: request, res },
+    {
+      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+      supabaseKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    }
+  );
+
+  // Refresh session if expired
+  await supabase.auth.getSession();
+  
   // Get the pathname
   const path = request.nextUrl.pathname;
-  
-  // Create response to modify
-  const res = NextResponse.next();
   
   // Skip middleware for public assets
   if (
@@ -57,9 +67,6 @@ export async function middleware(request: NextRequest) {
       console.log(`Middleware: Non-protected route detected (${path}), passing through`);
       return res;
     }
-    
-    // Create the Supabase client
-    const supabase = createMiddlewareClient({ req: request, res });
     
     // Print out the cookies for debugging
     console.log('Middleware: Cookies received:', request.cookies.toString());

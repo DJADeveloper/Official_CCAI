@@ -2,12 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase/client';
-import { Box, Typography, CircularProgress, Alert, Paper, Chip } from '@mui/material';
-import { DataGrid, GridColDef, GridActionsCellItem, GridValueGetterParams } from '@mui/x-data-grid';
+import { Box, Typography, CircularProgress, Alert, Paper, Chip, Stack, Avatar } from '@mui/material';
+import { DataGrid, GridColDef, GridActionsCellItem, GridValueGetterParams, GridRenderCellParams } from '@mui/x-data-grid';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import toast from 'react-hot-toast';
 import UpdateStaffDialog from '@/components/dialogs/UpdateStaffDialog';
+import Link from 'next/link';
 
 // Define type for Staff/Admin Profile
 type StaffProfile = {
@@ -130,7 +131,42 @@ export default function StaffPage() {
 
   // Define columns for DataGrid
   const columns: GridColDef[] = [
-    { field: 'full_name', headerName: 'Full Name', width: 200 },
+    {
+      field: 'full_name',
+      headerName: 'Full Name',
+      minWidth: 220,
+      flex: 1,
+      renderCell: (params: GridRenderCellParams) => {
+        const name = params.row.full_name;
+        const email = params.row.email;
+        const profileId = params.row.id;
+        return (
+          <Stack direction="row" spacing={1.5} alignItems="center" sx={{ py: 1 }}>
+            <Avatar sx={{ width: 32, height: 32, bgcolor: 'secondary.light' }}>
+              {name ? name[0]?.toUpperCase() : '-'}
+            </Avatar>
+            <Box>
+              <Link href={`/dashboard/profile/${profileId}`} passHref style={{ textDecoration: 'none' }}>
+                <Typography
+                  variant="body2"
+                  fontWeight={500}
+                  component="a"
+                  sx={{
+                    color: 'text.primary',
+                    '&:hover': { textDecoration: 'underline' }
+                  }}
+                >
+                  {name || 'N/A'}
+                </Typography>
+              </Link>
+              <Typography variant="caption" color="text.secondary">
+                {email || 'No Email'}
+              </Typography>
+            </Box>
+          </Stack>
+        );
+      },
+    },
     { field: 'email', headerName: 'Email', width: 250 },
     {
       field: 'role',
@@ -208,6 +244,35 @@ export default function StaffPage() {
            pageSizeOptions={[5, 10, 20]}
            checkboxSelection={false}
            disableRowSelectionOnClick
+           sx={{
+             border: 0,
+             '& .MuiDataGrid-columnHeaders': {
+               borderBottom: '1px solid',
+               borderColor: 'divider',
+             },
+             '& .MuiDataGrid-columnHeaderTitle': {
+               fontWeight: 600,
+               textTransform: 'none',
+             },
+             '& .MuiDataGrid-cell': {
+               borderBottom: '1px solid',
+               borderColor: 'divider',
+               py: 0.5,
+             },
+             '& .MuiDataGrid-footerContainer': {
+               borderTop: '1px solid',
+               borderColor: 'divider',
+             },
+             '& .MuiDataGrid-columnSeparator': {
+               display: 'none',
+             },
+             '& .MuiDataGrid-cell:focus, & .MuiDataGrid-cell:focus-within': {
+               outline: 'none',
+             },
+             '& .MuiDataGrid-columnHeader:focus, & .MuiDataGrid-columnHeader:focus-within': {
+               outline: 'none',
+             },
+           }}
          />
       </Box>
 

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { useAuth } from '@/lib/hooks/useAuth';
 import {
@@ -12,6 +12,7 @@ import {
   List,
   ListItem,
   ListItemButton,
+  ListItemAvatar,
   ListItemText,
   Divider,
   Grid,
@@ -19,10 +20,12 @@ import {
   Stack,
   TextField,
   IconButton,
+  Badge,
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'react-hot-toast';
+import Link from 'next/link';
 
 // Define type for Profile (adapt if needed)
 type Profile = {
@@ -247,14 +250,38 @@ export default function ChatPage() {
         {!loadingProfiles && !profilesError && (
           <List disablePadding>
             {profiles.map((profile) => (
-              <ListItem key={profile.id} disablePadding>
-                <ListItemButton
-                  selected={selectedChatPartner?.id === profile.id}
-                  onClick={() => handleSelectChat(profile)}
-                >
-                  <ListItemText 
-                    primary={profile.full_name || 'Unnamed User'}
-                    secondary={profile.role}
+              <ListItem 
+                key={profile.id} 
+                disablePadding
+                sx={{ bgcolor: selectedChatPartner?.id === profile.id ? 'action.selected' : 'inherit' }}
+              >
+                <ListItemButton onClick={() => handleSelectChat(profile)}>
+                  <ListItemAvatar>
+                    <Avatar 
+                      src={profile.avatar_url || undefined}
+                      sx={{ width: 32, height: 32 }}
+                    >
+                      {profile.full_name ? profile.full_name[0]?.toUpperCase() : '?'}
+                    </Avatar>
+                  </ListItemAvatar>
+                  <ListItemText
+                    primary={
+                      <Link href={`/dashboard/profile/${profile.id}`} passHref style={{ textDecoration: 'none' }}>
+                        <Typography 
+                          component="a" 
+                          variant="body2" 
+                          sx={{ 
+                            color: 'text.primary', 
+                            fontWeight: 500,
+                            '&:hover': { textDecoration: 'underline' } 
+                          }}
+                        >
+                          {profile.full_name || 'Unknown User'}
+                        </Typography>
+                      </Link>
+                    }
+                    secondary={profile.role || 'Unknown Role'}
+                    secondaryTypographyProps={{ variant: 'caption' }}
                   />
                 </ListItemButton>
               </ListItem>

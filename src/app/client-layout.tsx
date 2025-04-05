@@ -13,30 +13,27 @@ import CssBaseline from '@mui/material/CssBaseline';
 import { getDesignTokens } from '@/theme/theme';
 import { PaletteMode } from '@mui/material';
 
-// Create the context
-export const ColorModeContext = createContext({ toggleColorMode: () => {} });
+// Create the color mode context
+export const ColorModeContext = createContext({
+  toggleColorMode: () => {},
+});
 
 export default function ClientLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  // State to manage the theme mode
-  const [mode, setMode] = useState<PaletteMode>('light'); // Default to light mode
+  const [mode, setMode] = useState<PaletteMode>('light');
 
-  // TODO: Add logic to read preference from localStorage or system preference
-
-  // Define the toggle function memoized (optional, but good practice)
   const colorMode = useMemo(
     () => ({
       toggleColorMode: () => {
         setMode((prevMode) => (prevMode === 'light' ? 'dark' : 'light'));
       },
     }),
-    [], // No dependencies, function doesn't change
+    []
   );
 
-  // Create the theme object dynamically based on the mode
   const theme = useMemo(() => createTheme(getDesignTokens(mode)), [mode]);
 
   // Initialize Supabase auth session as early as possible
@@ -78,11 +75,9 @@ export default function ClientLayout({
   }, []);
   
   return (
-    // Provide the color mode context
     <ColorModeContext.Provider value={colorMode}>
       <ThemeProvider theme={theme}>
-        {/* CssBaseline kickstarts an elegant, consistent, and simple baseline to build upon. */}
-        <CssBaseline /> 
+        <CssBaseline />
         <AuthProvider>
           {children}
           <Toaster position="top-right" />

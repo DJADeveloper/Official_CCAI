@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { Box, Typography, CircularProgress, Alert, Paper, Chip } from '@mui/material';
-import { DataGrid, GridColDef, GridActionsCellItem, GridValueGetterParams } from '@mui/x-data-grid';
+import { DataGrid, GridColDef, GridActionsCellItem, GridValueGetterParams, GridRenderCellParams } from '@mui/x-data-grid';
+import Link from 'next/link';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import toast from 'react-hot-toast';
@@ -152,14 +153,56 @@ export default function IncidentsPage() {
     {
       field: 'reported_by',
       headerName: 'Reported By',
-      width: 150,
-      valueGetter: (params: GridValueGetterParams) => params.row.reported_by_profile?.full_name || 'N/A',
+      width: 170,
+      renderCell: (params: GridRenderCellParams) => {
+        const profile = params.row.reported_by_profile;
+        const name = profile?.full_name;
+        const profileId = params.row.reported_by;
+        
+        if (!profileId || !name) return <Typography variant="body2">N/A</Typography>;
+        
+        return (
+          <Link href={`/dashboard/profile/${profileId}`} passHref style={{ textDecoration: 'none' }}>
+             <Typography 
+               variant="body2" 
+               component="a"
+               sx={{ 
+                 color: 'text.primary', 
+                 '&:hover': { textDecoration: 'underline' } 
+               }}
+             >
+               {name}
+             </Typography>
+          </Link>
+        );
+      },
     },
     {
       field: 'assigned_to',
       headerName: 'Assigned To',
-      width: 150,
-      valueGetter: (params: GridValueGetterParams) => params.row.assigned_to_profile?.full_name || 'Unassigned',
+      width: 170,
+      renderCell: (params: GridRenderCellParams) => {
+         const profile = params.row.assigned_to_profile;
+         const name = profile?.full_name;
+         const profileId = params.row.assigned_to;
+         
+         if (!profileId) return <Typography variant="body2" color="text.secondary">Unassigned</Typography>;
+         
+         return (
+           <Link href={`/dashboard/profile/${profileId}`} passHref style={{ textDecoration: 'none' }}>
+              <Typography 
+                variant="body2" 
+                component="a"
+                sx={{ 
+                  color: 'text.primary', 
+                  '&:hover': { textDecoration: 'underline' } 
+                }}
+              >
+                {name || 'N/A'}
+              </Typography>
+           </Link>
+         );
+       },
     },
     {
       field: 'severity',
@@ -234,6 +277,7 @@ export default function IncidentsPage() {
            rows={incidents}
            columns={columns}
            loading={loading || deleting}
+           getRowHeight={() => 'auto'}
            initialState={{
              pagination: {
                paginationModel: { page: 0, pageSize: 10 },
