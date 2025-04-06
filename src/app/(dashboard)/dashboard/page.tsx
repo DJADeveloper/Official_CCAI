@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Box,
@@ -8,6 +8,7 @@ import {
   Typography,
   Button,
   Card,
+  CardHeader,
   CardContent,
   CardActions,
   Alert,
@@ -24,7 +25,11 @@ import {
   Avatar,
   Stack,
   LinearProgress,
-  Divider
+  Divider,
+  Chip,
+  Tooltip,
+  useTheme,
+  ChipProps
 } from '@mui/material';
 import {
   People,
@@ -36,10 +41,16 @@ import {
   AccessTime,
   Logout,
   ArrowUpward,
-  ArrowDownward
+  ArrowDownward,
+  ShoppingCart,
+  AttachMoney,
+  Person,
+  MoreVert,
+  Medication as MedicationIcon,
+  ArrowForward as ViewAllIcon
 } from '@mui/icons-material';
 import { supabase } from '@/lib/supabase/client';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip, ResponsiveContainer, PieChart, Pie, Cell, Tooltip as RechartsTooltip } from 'recharts';
 import CreateResidentDialog from '@/components/dialogs/CreateResidentDialog';
 import CreateStaffDialog from '@/components/dialogs/CreateStaffDialog';
 import CreateFamilyDialog from '@/components/dialogs/CreateFamilyDialog';
@@ -52,6 +63,7 @@ import EventIcon from '@mui/icons-material/Event';
 import GroupIcon from '@mui/icons-material/Group';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import Link from 'next/link';
+import { useAuth } from '@/lib/hooks/useAuth';
 
 // Access environment variables
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -75,8 +87,25 @@ type ResidentWithProfile = {
     // Add other profile fields if needed
   } | null;
 };
-type Incident = any; // Database['public']['Tables']['incidents']['Row'] & { reported_by_profile?: Profile | null, resident_profile?: Profile | null };
-type Event = any; // Database['public']['Tables']['events']['Row'] & { organizer_profile?: Profile | null };
+type Incident = {
+  id: string;
+  created_at: string;
+  title: string;
+  severity: 'LOW' | 'MEDIUM' | 'HIGH';
+  status: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED';
+  resident_id: string;
+  reported_by: string;
+  assigned_to: string | null;
+  residents: {
+    profiles: { full_name: string | null } | null 
+  } | null;
+};
+type Event = {
+  id: string;
+  title: string;
+  start_time: string;
+  location: string | null;
+};
 type StaffOrAdmin = Profile; // Profiles with role STAFF or ADMIN
 
 // Supabase client specific to this component
@@ -84,198 +113,168 @@ type StaffOrAdmin = Profile; // Profiles with role STAFF or ADMIN
 // const supabase = createClientComponentClient<Database>(); // Use generic later
 // const supabase = createClientComponentClient();
 
+// --- Helper Component for Summary Widgets ---
+interface SummaryWidgetProps {
+  title: string;
+  value: string | number;
+  icon: React.ReactNode;
+  color?: string; // Optional color for icon/value
+  children?: React.ReactNode; // Allow embedding charts or other content
+}
+
+function SummaryWidget({ title, value, icon, color = 'text.primary', children }: SummaryWidgetProps) {
+  return (
+    <Paper elevation={2} sx={{ p: 2, display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <Box>
+          <Typography variant="body2" color="text.secondary" gutterBottom>
+            {title}
+          </Typography>
+          <Typography variant="h4" component="div" sx={{ color, fontWeight: 600 }}>
+            {value}
+          </Typography>
+        </Box>
+        <Avatar sx={{ bgcolor: 'primary.main', width: 48, height: 48 }}>
+          {icon}
+        </Avatar>
+      </Box>
+      {children && (
+         <Box sx={{ mt: 2, flexGrow: 1 }}>
+             {/* Ensure child takes available space */}
+             {children}
+         </Box>
+      )}
+    </Paper>
+  );
+}
+
 export default function DashboardPage() {
   const router = useRouter();
-  const [user, setUser] = useState<any>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const { user, profile, loading: authLoading } = useAuth();
+  const theme = useTheme();
+
+  // State for dashboard data
   const [residents, setResidents] = useState<ResidentWithProfile[]>([]);
+  const [staffCount, setStaffCount] = useState<number>(0);
   const [incidents, setIncidents] = useState<Incident[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [dataLoading, setDataLoading] = useState(true);
+  const [dataError, setDataError] = useState<string | null>(null);
   const [debugInfo, setDebugInfo] = useState<any>(null);
-  const [trendsData, setTrendsData] = useState([
-    { name: 'Jan', incidents: 4, events: 12 },
-    { name: 'Feb', incidents: 3, events: 15 },
-    { name: 'Mar', incidents: 5, events: 10 },
-    { name: 'Apr', incidents: 2, events: 18 },
-    { name: 'May', incidents: 4, events: 14 },
-    { name: 'Jun', incidents: 3, events: 16 },
-  ]);
 
-  // State for controlling the dialog
+  // State for dialogs open/close
   const [isCreateResidentDialogOpen, setIsCreateResidentDialogOpen] = useState(false);
   const [isCreateStaffDialogOpen, setIsCreateStaffDialogOpen] = useState(false);
   const [isCreateFamilyDialogOpen, setIsCreateFamilyDialogOpen] = useState(false);
   const [isCreateIncidentDialogOpen, setIsCreateIncidentDialogOpen] = useState(false);
 
   // State for dialog props data
-  const [allResidentsForSelection, setAllResidentsForSelection] = useState<ResidentWithProfile[]>([]);
-  const [potentialAssignees, setPotentialAssignees] = useState<StaffOrAdmin[]>([]);
+  const [allResidentsForDialog, setAllResidentsForDialog] = useState<ResidentWithProfile[]>([]);
+  const [potentialAssigneesForDialog, setPotentialAssigneesForDialog] = useState<StaffOrAdmin[]>([]);
 
-  useEffect(() => {
-    async function checkSessionAndFetchData() {
-      setIsLoading(true);
-      setError(null);
-      try {
-        // Direct session check using Supabase
-        const { data, error: sessionCheckError } = await supabase.auth.getSession();
-        
-        // Update debug info
-        setDebugInfo((prev: any) => ({
-          ...prev,
-          sessionCheck: { 
-            hasSession: !!data.session,
-            error: sessionCheckError?.message,
-          },
-          authUser: data.session?.user || null,
-          timestamp: new Date().toISOString(),
-        }));
-
-        if (sessionCheckError) {
-          console.error('Session check error:', sessionCheckError);
-          setError('Failed to verify authentication session.');
-          setIsLoading(false);
-          return;
+  // --- Hooks for Data Processing (MUST BE CALLED BEFORE conditional returns) ---
+  const incidentSeverityData = useMemo(() => {
+    const counts = {
+      LOW: 0,
+      MEDIUM: 0,
+      HIGH: 0,
+    };
+    incidents.forEach(inc => {
+      if (inc.severity) {
+        const severityKey = inc.severity as keyof typeof counts;
+        if (severityKey in counts) { 
+             counts[severityKey]++;
         }
-
-        if (!data.session) {
-          console.log('No active session found, redirecting to login');
-          router.push('/login');
-          return;
-        }
-        
-        // Set user from session data
-        setUser(data.session.user);
-        
-        // Fetch profile data
-        if (data.session?.user?.id) {
-          const { data: profileData, error: profileError } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', data.session.user.id)
-            .single();
-            
-          if (profileError) {
-            console.error('Error fetching profile:', profileError);
-            setError('Error loading user profile');
-          } else {
-            setProfile(profileData);
-            // Fetch dashboard data only after confirming profile
-            await fetchData(profileData); // Pass profile to fetchData if needed for permissions
-          }
-        } else {
-           setError('Session found but user ID is missing.');
-           setIsLoading(false);
-           router.push('/login');
-           return;
-        }
-      } catch (err) {
-         console.error('Error checking session or fetching initial data:', err);
-         setError('Error loading dashboard. Please try logging in again.');
-         // Optionally set debug info on error
-         setDebugInfo((prev: any) => ({
-            ...prev,
-            sessionOrFetchError: err instanceof Error ? err.message : String(err),
-            timestamp: new Date().toISOString(),
-         }));
-      } finally {
-         setIsLoading(false);
       }
-    }
-    
-    checkSessionAndFetchData();
-  }, [router]);
+    });
+    return [
+      { name: 'Low', value: counts.LOW },
+      { name: 'Medium', value: counts.MEDIUM },
+      { name: 'High', value: counts.HIGH },
+    ].filter(item => item.value > 0); 
+  }, [incidents]);
 
-  const fetchData = async (currentProfile: Profile | null) => {
-    // Ensure we only fetch if profile is loaded and has a role
-    if (!currentProfile?.role) {
-        console.log("FetchData skipped: Profile not loaded or missing role.");
-        return;
-    }
+  const severityColors = useMemo(() => ({
+    LOW: theme.palette.success.main,
+    MEDIUM: theme.palette.warning.main,
+    HIGH: theme.palette.error.main,
+  }), [theme]); // Depend on theme
 
-    setIsLoading(true); // Indicate data fetching started
+  // Fetch dashboard data function
+  const fetchData = async () => {
+    setDataLoading(true);
+    setDataError(null);
     try {
-      // Fetch summary data for dashboard cards (limit 5)
-      const [residentsSummaryRes, incidentsSummaryRes, eventsSummaryRes] = await Promise.all([
+      const fetches = [
+        supabase.from('residents').select('*, profiles (*)', { count: 'exact' }),
+        supabase.from('profiles').select('id', { count: 'exact' }).in('role', ['STAFF', 'ADMIN']),
         supabase
-          .from('residents')
-          .select(`
-            *,
-            profiles ( id, full_name, email )
-          `)
+          .from('incidents')
+          .select('*, residents(profiles(full_name))')
+          .order('created_at', { ascending: false })
           .limit(5),
-        supabase.from('incidents').select('*').order('created_at', { ascending: false }).limit(5),
-        supabase.from('events').select('*').order('start_time', { ascending: true }).limit(5),
-      ]);
+        supabase.from('events').select('id, title, start_time, location').order('start_time').limit(5),
+        supabase.from('residents').select('*, profiles(*)'),
+        supabase.from('profiles').select('*').in('role', ['STAFF', 'ADMIN']),
+      ];
 
-      // Set summary data
-      if (residentsSummaryRes.data) setResidents(residentsSummaryRes.data);
-      if (incidentsSummaryRes.data) setIncidents(incidentsSummaryRes.data);
-      if (eventsSummaryRes.data) setEvents(eventsSummaryRes.data);
+      const [
+        residentsRes,
+        staffCountRes,
+        incidentsRes,
+        eventsRes,
+        allResidentsRes,
+        potentialAssigneesRes,
+      ] = await Promise.all(fetches);
 
-      // Fetch full lists needed for dialogs (only if user has permission, e.g., ADMIN or STAFF)
-      if (currentProfile.role === 'ADMIN' || currentProfile.role === 'STAFF') {
-        const [allResidentsRes, assigneesRes] = await Promise.all([
-          supabase
-            .from('residents')
-            .select(`
-              *,
-              profiles ( id, full_name )
-            `), // Select all resident fields + nested profile
-          supabase
-            .from('profiles')
-            .select('id, full_name, email, role')
-            .in('role', ['ADMIN', 'STAFF']) // Fetch only ADMIN and STAFF for assignment
-            .order('full_name'),
-        ]);
+      if (residentsRes.error) throw new Error(`Residents Error: ${residentsRes.error.message}`);
+      if (staffCountRes.error) throw new Error(`Staff Count Error: ${staffCountRes.error.message}`);
+      if (incidentsRes.error) throw new Error(`Incidents Error: ${incidentsRes.error.message}`);
+      if (eventsRes.error) throw new Error(`Events Error: ${eventsRes.error.message}`);
+      if (allResidentsRes.error) throw new Error(`All Residents Error: ${allResidentsRes.error.message}`);
+      if (potentialAssigneesRes.error) throw new Error(`Potential Assignees Error: ${potentialAssigneesRes.error.message}`);
 
-        if (allResidentsRes.data) {
-          setAllResidentsForSelection(allResidentsRes.data);
-        } else if (allResidentsRes.error) {
-          console.error("Error fetching all residents for selection:", allResidentsRes.error);
-          toast.error(`Failed to load residents list: ${allResidentsRes.error.message}`);
-        }
+      setResidents((residentsRes.data as ResidentWithProfile[])?.slice(0, 5) || []);
+      setStaffCount(staffCountRes.count || 0);
+      setIncidents((incidentsRes.data as Incident[]) || []);
+      setEvents((eventsRes.data as Event[]) || []);
+      setAllResidentsForDialog((allResidentsRes.data as ResidentWithProfile[]) || []);
+      setPotentialAssigneesForDialog((potentialAssigneesRes.data as StaffOrAdmin[]) || []);
 
-        if (assigneesRes.data) {
-          setPotentialAssignees(assigneesRes.data);
-        } else if (assigneesRes.error) {
-          console.error("Error fetching potential assignees:", assigneesRes.error);
-          toast.error(`Failed to load staff/admin list: ${assigneesRes.error.message}`);
-        }
-      }
-
-      // Check for errors in summary fetches
-      if (residentsSummaryRes.error) console.error('Error fetching residents summary:', residentsSummaryRes.error);
-      if (incidentsSummaryRes.error) console.error('Error fetching incidents summary:', incidentsSummaryRes.error);
-      if (eventsSummaryRes.error) console.error('Error fetching events summary:', eventsSummaryRes.error);
-
-      // Update debug info if needed
       setDebugInfo((prev: any) => ({
         ...prev,
         dataFetch: {
-          residentsSummary: residentsSummaryRes.status,
-          incidentsSummary: incidentsSummaryRes.status,
-          eventsSummary: eventsSummaryRes.status,
-          allResidentsForSelectionCount: allResidentsForSelection.length,
-          potentialAssigneesCount: potentialAssignees.length,
+          residentsSummary: residentsRes.status,
+          staffCount: staffCountRes.status,
+          incidentsSummary: incidentsRes.status,
+          eventsSummary: eventsRes.status,
+          allResidentsForSelectionCount: allResidentsRes.data?.length ?? 0,
+          potentialAssigneesCount: potentialAssigneesRes.data?.length ?? 0,
         },
         timestamp: new Date().toISOString(),
       }));
 
     } catch (error: any) {
       console.error('Error fetching dashboard data:', error);
-      setError(`Error fetching data: ${error.message}`);
+      setDataError(`Error fetching data: ${error.message}`);
       setDebugInfo((prev: any) => ({
         ...prev,
         fetchError: error instanceof Error ? error.message : String(error),
         timestamp: new Date().toISOString(),
       }));
     } finally {
-        setIsLoading(false); // Indicate data fetching finished
+      setDataLoading(false);
     }
   };
 
+  // useEffect to fetch data when authentication is complete and profile exists
+  useEffect(() => {
+    if (!authLoading && profile) {
+      fetchData();
+    }
+  }, [authLoading, profile]);
+
+  // Handlers (logout, dialogs, etc.) - Keep these as they are
   const handleLogout = async () => {
     try {
       await supabase.auth.signOut();
@@ -287,12 +286,12 @@ export default function DashboardPage() {
         logoutError: error instanceof Error ? error.message : String(error),
         timestamp: new Date().toISOString(),
       }));
-      setError('Failed to sign out.');
+      setDataError('Failed to sign out.');
     }
   };
 
   const handleManualReload = () => {
-    fetchData(profile);
+    fetchData();
   };
 
   // Define dialog open/close handlers
@@ -306,7 +305,7 @@ export default function DashboardPage() {
 
   const handleResidentCreated = () => {
     toast.success('Resident created! Refreshing data...');
-    fetchData(profile);
+    fetchData();
   };
 
   // Handlers for Create Staff Dialog
@@ -318,7 +317,7 @@ export default function DashboardPage() {
   };
   const handleStaffCreated = () => {
     toast.success('Staff member created! Refreshing data...');
-    fetchData(profile);
+    fetchData();
   };
 
   // Handlers for Create Family Dialog
@@ -330,7 +329,7 @@ export default function DashboardPage() {
   };
   const handleFamilyCreated = () => {
     toast.success('Family member created! Refreshing data...');
-    fetchData(profile);
+    fetchData();
   };
 
   // Handlers for Create Incident Dialog
@@ -342,114 +341,133 @@ export default function DashboardPage() {
   };
   const handleIncidentCreated = () => {
     toast.success('Incident reported! Refreshing data...');
-    fetchData(profile);
+    fetchData();
   };
 
-  // If loading, show loading indicator
-  if (isLoading) {
+  // --- Conditional Rendering Logic --- 
+
+  // 1. Handle Auth Loading state
+  if (authLoading) {
     return (
-      <Box sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}>
         <CircularProgress />
-        <Typography variant="h6" sx={{ m: 2 }}>Loading dashboard...</Typography>
-        
-        {debugInfo && (
-          <Paper sx={{ mt: 3, p: 2, maxWidth: '80%', overflow: 'auto' }}>
-            <Typography variant="h6">Debug Information (Loading):</Typography>
-            <pre style={{ overflow: 'auto', maxHeight: '200px' }}>{JSON.stringify(debugInfo, null, 2)}</pre>
-          </Paper>
-        )}
+        <Typography sx={{ ml: 2 }}>Loading user authentication...</Typography>
       </Box>
     );
   }
 
-  // If error, show error message with debugging info
-  if (error) {
+  // 2. Handle Auth Complete but No User/Profile
+  if (!user || !profile) {
     return (
       <Box sx={{ p: 3 }}>
-        <Alert severity="error" sx={{ mb: 3 }}>
-          {error}
+        <Alert severity="error" sx={{ mb: 2 }}>
+          Authentication failed or user profile not found. Please log in.
         </Alert>
-        <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
-          <Button variant="contained" onClick={handleLogout}>
-            Log Out and Try Again
-          </Button>
-          <Button variant="outlined" onClick={handleManualReload}>
-            Retry Loading Data
-          </Button>
-        </Box>
-        
-        {debugInfo && (
-          <Paper sx={{ mt: 3, p: 2 }}>
-            <Typography variant="h6">Debug Information (Error):</Typography>
-            <pre style={{ overflow: 'auto', maxHeight: '400px' }}>{JSON.stringify(debugInfo, null, 2)}</pre>
-          </Paper>
-        )}
-      </Box>
-    );
-  }
-
-  // If no profile but user exists, show loading state
-  if (user && !profile) {
-    return (
-      <Box sx={{ p: 3 }}>
-        <Alert severity="info" sx={{ mb: 3 }}>
-          Loading user profile... User authenticated but profile not loaded yet.
-        </Alert>
-        <CircularProgress />
-        <Button variant="outlined" onClick={handleManualReload} sx={{ ml: 2 }}>
-          Retry
+        <Button variant="contained" onClick={() => router.push('/login')}>
+          Go to Login
         </Button>
-        
-        {debugInfo && (
-          <Paper sx={{ mt: 3, p: 2 }}>
-            <Typography variant="h6">Debug Information (Profile Loading):</Typography>
-            <pre style={{ overflow: 'auto', maxHeight: '400px' }}>{JSON.stringify(debugInfo, null, 2)}</pre>
-          </Paper>
-        )}
       </Box>
     );
   }
 
+  // 3. Handle Data Loading state (after auth is confirmed)
+  if (dataLoading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}>
+        <CircularProgress />
+        <Typography sx={{ ml: 2 }}>Loading dashboard data...</Typography>
+      </Box>
+    );
+  }
+
+  // 4. Handle Data Fetching Error
+  if (dataError) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {dataError}
+        </Alert>
+        <Button variant="outlined" onClick={fetchData}>Retry</Button>
+      </Box>
+    );
+  }
+
+  // --- Main Dashboard Render (Auth complete, profile loaded, data loaded) --- 
+  
+  // Role checks - moved down after conditional returns
+  const isAdmin = profile?.role === 'ADMIN';
+  const isStaff = profile?.role === 'STAFF';
+  
+  // Quick Actions - moved down after conditional returns
   const quickActions = [
-    (profile?.role === 'ADMIN' || profile?.role === 'STAFF') && {
+    (isAdmin || isStaff) && {
       title: 'Create Resident',
       icon: <People />,
       onClick: handleOpenCreateResidentDialog,
     },
-    profile?.role === 'ADMIN' && {
+    isAdmin && {
       title: 'Create Staff',
       icon: <Add />,
       onClick: handleOpenCreateStaffDialog,
     },
-    (profile?.role === 'ADMIN' || profile?.role === 'STAFF') && {
+    (isAdmin || isStaff) && {
       title: 'Create Family',
       icon: <Add />,
       onClick: handleOpenCreateFamilyDialog,
     },
-    (profile?.role === 'ADMIN' || profile?.role === 'STAFF') && {
+    (isAdmin || isStaff) && {
       title: 'Log Incident',
       icon: <Warning />,
       onClick: handleOpenCreateIncidentDialog,
     },
   ].filter(Boolean);
 
-  // Prepare data for charts (Example: Incidents by severity)
-  const incidentSeverityData = incidents.reduce((acc: { [key: string]: number }, incident) => {
-    const severity = incident.severity || 'UNKNOWN';
-    acc[severity] = (acc[severity] || 0) + 1;
-    return acc;
-  }, {});
-  const chartData = Object.entries(incidentSeverityData).map(([name, value]) => ({ name, value }));
-
-  // Role check for conditional rendering
-  const isAdmin = profile?.role === 'ADMIN';
-  const isStaff = profile?.role === 'STAFF';
-
   // Calculate counts for widgets
   const residentCount = residents.length;
   const openIncidentCount = incidents.filter(i => i.status !== 'RESOLVED').length;
   const eventCount = events.length;
-  const staffCount = potentialAssignees.length;
+
+  const statsCards = [
+    {
+      title: 'Daily Visitors',
+      value: '1,352',
+      change: '+12.5%',
+      isPositive: true,
+      icon: <Person />,
+      color: theme.palette.primary.main
+    },
+    {
+      title: 'Average Daily Sales',
+      value: '51,352',
+      change: '+12.5%',
+      isPositive: true,
+      icon: <ShoppingCart />,
+      color: theme.palette.success.main
+    },
+    {
+      title: 'Orders This Month',
+      value: '1,352',
+      change: '-2.2%',
+      isPositive: false,
+      icon: <TrendingUp />,
+      color: theme.palette.warning.main
+    },
+    {
+      title: 'Monthly Earnings',
+      value: '$20,360',
+      change: '-2.2%',
+      isPositive: false,
+      icon: <AttachMoney />,
+      color: theme.palette.error.main
+    },
+  ];
+
+  const topSellers = [
+    { name: 'Gage Paquette', sales: 13440, amount: '$350K', avatar: '/avatars/1.png' },
+    { name: 'Lara Harvey', sales: 10240, amount: '$205K', avatar: '/avatars/2.png' },
+    { name: 'Evan Scott', sales: 10240, amount: '$145K', avatar: '/avatars/3.png' },
+    { name: 'Benja Johnston', sales: 10240, amount: '$143K', avatar: '/avatars/4.png' },
+  ];
 
   return (
     <Box>
@@ -469,338 +487,302 @@ export default function DashboardPage() {
         Welcome back, {profile?.full_name || 'User'}! Here's what's happening today.
       </Alert>
 
-      {/* Quick Actions */}
-      <Box sx={{ 
-        display: 'grid',
-        gridTemplateColumns: {
-          xs: '1fr',
-          sm: '1fr 1fr',
-          md: `repeat(${quickActions.length}, 1fr)`
-        },
-        gap: 3,
-        mb: 3
-      }}>
-        {quickActions.map((action) => (
-          action && (
-            <Card key={action.title}>
-              <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                  <IconButton color="primary" size="large">
-                    {action.icon}
-                  </IconButton>
-                  <Typography variant="h6" component="div">
-                    {action.title}
-                  </Typography>
-                </Box>
-              </CardContent>
-              <CardActions>
-                <Button
-                  size="small"
-                  color="primary"
-                  onClick={action.onClick}
-                  fullWidth
-                >
-                  {action.title}
-                </Button>
-              </CardActions>
-            </Card>
-          )
-        ))}
-      </Box>
-
-      {/* Stats Cards */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid item xs={12} sm={6} md={3}>
-          <Card sx={{ 
-            bgcolor: 'background.paper',
-            boxShadow: 2,
-            borderRadius: 2,
-            p: 1
-          }}>
-            <CardContent>
-              <Stack direction="row" spacing={2} alignItems="center">
-                <Avatar sx={{ bgcolor: 'primary.light', p: 2 }}>
-                  <PeopleIcon />
-                </Avatar>
-                <Box>
-                  <Typography color="text.secondary" variant="body2">
-                    Daily Visitors
-                  </Typography>
-                  <Typography variant="h4" sx={{ mt: 1, fontWeight: 'bold' }}>
-                    1,352
-                  </Typography>
-                  <Stack direction="row" alignItems="center" sx={{ mt: 1 }}>
-                    <ArrowUpward color="success" sx={{ fontSize: 16 }} />
-                    <Typography variant="body2" color="success.main" sx={{ ml: 0.5 }}>
-                      +12.5%
-                    </Typography>
-                  </Stack>
-                </Box>
-              </Stack>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* Add similar cards for other stats */}
-      </Grid>
-
-      {/* Charts Section */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid item xs={12} md={8}>
-          <Paper sx={{ p: 3, borderRadius: 2 }}>
-            <Typography variant="h6" gutterBottom>
-              Sales Overview
-            </Typography>
-            <Box sx={{ height: 300, mt: 2 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={trendsData}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" />
-                  <YAxis />
-                  <ChartTooltip />
-                  <Line 
-                    type="monotone" 
-                    dataKey="incidents" 
-                    stroke="#8884d8" 
-                    strokeWidth={2}
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="events" 
-                    stroke="#82ca9d" 
-                    strokeWidth={2}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </Box>
-          </Paper>
-        </Grid>
-
-        <Grid item xs={12} md={4}>
-          <Paper sx={{ p: 3, borderRadius: 2, height: '100%' }}>
-            <Typography variant="h6" gutterBottom>
-              Customer Reviews
-            </Typography>
-            <Box sx={{ mt: 2 }}>
-              <Typography variant="h3" sx={{ textAlign: 'center', fontWeight: 'bold' }}>
-                4.5/5
-              </Typography>
-              <Box sx={{ mt: 2 }}>
-                {[5,4,3,2,1].map((rating) => (
-                  <Box key={rating} sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                    <Typography sx={{ minWidth: 50 }}>{rating} Star</Typography>
-                    <LinearProgress 
-                      variant="determinate" 
-                      value={rating === 5 ? 50 : rating === 4 ? 40 : rating === 3 ? 30 : rating === 2 ? 20 : 10} 
-                      sx={{ flexGrow: 1, mx: 1 }}
-                    />
-                    <Typography variant="body2">
-                      {rating === 5 ? '50%' : rating === 4 ? '40%' : rating === 3 ? '30%' : rating === 2 ? '20%' : '10%'}
-                    </Typography>
-                  </Box>
-                ))}
-              </Box>
-            </Box>
-          </Paper>
-        </Grid>
-      </Grid>
-
-      {/* Recent Activity */}
-      <Grid container spacing={3}>
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 3, borderRadius: 2 }}>
-            <Typography variant="h6" gutterBottom>
-              Recent Orders
-            </Typography>
-            <List>
-              {/* Map through your orders data */}
-            </List>
-          </Paper>
-        </Grid>
-
-        <Grid item xs={12} md={6}>
-          <Paper sx={{ p: 3, borderRadius: 2 }}>
-            <Typography variant="h6" gutterBottom>
-              Top Sellers
-            </Typography>
-            <List>
-              {/* Map through your top sellers data */}
-            </List>
-          </Paper>
-        </Grid>
-      </Grid>
-
-      {/* Residents List */}
-      <Paper sx={{ p: 2, mb: 3 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
-          <Typography variant="h6">Recent Residents</Typography>
-          {(isAdmin || isStaff) && (
-            <Button
-              variant="contained"
-              startIcon={<Add />}
-              onClick={handleOpenCreateResidentDialog}
-            >
-              Add Resident
+      {/* Quick Actions Buttons */}
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+         <Grid item>
+           <Button variant="contained" startIcon={<Add />} onClick={handleOpenCreateResidentDialog}>
+             Add Resident
+           </Button>
+         </Grid>
+         {isAdmin && (
+           <Grid item>
+             <Button variant="outlined" startIcon={<Add />} onClick={handleOpenCreateStaffDialog}>
+               Add Staff
+             </Button>
+           </Grid>
+         )}
+         <Grid item>
+            <Button variant="outlined" startIcon={<Add />} onClick={handleOpenCreateFamilyDialog}>
+              Add Family Member
             </Button>
-          )}
-        </Box>
-        <List dense>
-          {residents.slice(0, 5).map((resident) => {
-             const name = resident.profiles?.full_name;
-             const email = resident.profiles?.email;
-             const profileId = resident.profiles?.id;
-             return (
-              <ListItem key={resident.id} disablePadding>
-                <ListItemAvatar>
-                  <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.light' }}>
-                     {name ? name[0]?.toUpperCase() : '-'}
-                  </Avatar>
-                </ListItemAvatar>
-                <ListItemText
-                  primary={
-                    <Link href={`/dashboard/profile/${profileId}`} passHref style={{ textDecoration: 'none' }}>
-                      <Typography 
-                        component="a"
-                        sx={{ 
-                           color: 'text.primary', 
-                           '&:hover': { textDecoration: 'underline' } 
-                        }}
-                      >
-                         {name || `Profile ID: ${resident.profile_id}`}
-                      </Typography>
-                    </Link>
-                  }
-                  secondary={`Room ${resident.room_number || 'N/A'} - ${email || 'No Email'}`}
-                  primaryTypographyProps={{ fontWeight: 500 }}
-                  secondaryTypographyProps={{ variant: 'caption' }}
-                />
-              </ListItem>
-             );
-           })}
-        </List>
-      </Paper>
+         </Grid>
+         <Grid item>
+           <Button variant="outlined" color="warning" startIcon={<Warning />} onClick={handleOpenCreateIncidentDialog}>
+             Log Incident
+           </Button>
+         </Grid>
+         {/* Add Log/View Medications Button */} 
+         {(isAdmin || isStaff) && (
+            <Grid item>
+               <Button 
+                 variant="outlined" 
+                 color="success" // Or another suitable color
+                 startIcon={<MedicationIcon />} 
+                 onClick={() => router.push('/dashboard/medications')} 
+               >
+                 Log/View Meds
+               </Button>
+           </Grid>
+         )}
+       </Grid>
 
-      {/* Calendar and Recent Incidents */}
-      <Box sx={{ 
-        display: 'grid',
-        gridTemplateColumns: {
-          xs: '1fr',
-          md: '2fr 1fr'
-        },
-        gap: 3
-      }}>
-        <Paper sx={{ p: 2 }}>
-          <Typography variant="h6" gutterBottom>
-            Upcoming Events
-          </Typography>
-          <List>
-            {events.map((event) => (
-              <ListItem key={event.id}>
-                <ListItemIcon>
-                  <CalendarToday />
-                </ListItemIcon>
-                <ListItemText
-                  primary={event.title}
-                  secondary={
-                    <>
-                      <Typography component="span" variant="body2">
-                        {new Date(event.start_time).toLocaleDateString()}
-                      </Typography>
-                      {' — '}
-                      <Typography component="span" variant="body2">
-                        {new Date(event.start_time).toLocaleTimeString()}
-                      </Typography>
-                    </>
-                  }
-                />
-              </ListItem>
-            ))}
-          </List>
-        </Paper>
-        <Paper sx={{ p: 2 }}>
-          <Typography variant="h6" gutterBottom>
-            Recent Incidents
-          </Typography>
-          <List>
-            {incidents.map((incident) => (
-              <ListItem key={incident.id}>
-                <ListItemIcon>
-                  <Warning color={incident.severity === 'HIGH' ? 'error' : 'warning'} />
-                </ListItemIcon>
-                <ListItemText
-                  primary={incident.title}
-                  secondary={`Status: ${incident.status}`}
-                />
-              </ListItem>
-            ))}
-          </List>
-        </Paper>
-      </Box>
-
-      {/* Summary Widgets Grid */}
+      {/* Summary Widgets Grid - Keep this section */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
-        {/* Residents Widget */}
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Stack direction="row" spacing={2} alignItems="center">
-                <Avatar sx={{ bgcolor: 'primary.light', color: 'primary.dark' }}><PeopleIcon /></Avatar>
-                <Box>
-                  <Typography color="text.secondary" gutterBottom>Total Residents</Typography>
-                  <Typography variant="h4">{residentCount}</Typography>
-                </Box>
-              </Stack>
-            </CardContent>
-          </Card>
-        </Grid>
+          {/* Total Residents Widget */}
+          <Grid item xs={12} sm={6} md={3}>
+            <SummaryWidget
+              title="Total Residents"
+              value={residents.length} // Use fetched data length
+              icon={<PeopleIcon />}
+              color={theme.palette.primary.main}
+            />
+          </Grid>
+  
+          {/* Active Staff Widget */}
+          <Grid item xs={12} sm={6} md={3}>
+            <SummaryWidget
+              title="Active Staff/Admins"
+              value={staffCount} // Use fetched staffCount
+              icon={<GroupIcon />}
+              color={theme.palette.secondary.main}
+            />
+          </Grid>
+  
+          {/* Incidents by Severity Widget with Pie Chart */}
+          <Grid item xs={12} sm={6} md={3}>
+            <SummaryWidget
+              title="Incidents by Severity"
+              value={incidents.length} // Use fetched data length
+              icon={<WarningIcon />}
+              color={theme.palette.warning.main}
+            >
+              {incidentSeverityData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={100}>
+                  <PieChart >
+                    <Pie
+                      data={incidentSeverityData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={25}
+                      outerRadius={40}
+                      paddingAngle={3}
+                      dataKey="value"
+                      stroke="none"
+                    >
+                      {incidentSeverityData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={severityColors[entry.name.toUpperCase() as keyof typeof severityColors]} />
+                      ))}
+                    </Pie>
+                    <RechartsTooltip
+                      contentStyle={{
+                        background: theme.palette.background.paper,
+                        borderRadius: '4px',
+                        border: `1px solid ${theme.palette.divider}`
+                      }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                  <Typography variant="caption" color="text.secondary" align="center" display="block" sx={{mt:2}}>
+                    No incident data for chart.
+                  </Typography>
+               )}
+            </SummaryWidget>
+          </Grid>
+  
+          {/* Upcoming Events Widget */}
+          <Grid item xs={12} sm={6} md={3}>
+            <SummaryWidget
+               title="Upcoming Events"
+               value={events.length}
+               icon={<EventIcon />}
+               color={theme.palette.info.main}
+             >
+               {events.length > 0 ? (
+                  <List dense disablePadding sx={{maxHeight: 100, overflowY: 'auto'}}> 
+                    {events.map(event => {
+                      let formattedStartTime = 'Invalid Date';
+                      try {
+                        formattedStartTime = event.start_time 
+                          ? new Date(event.start_time).toLocaleString() 
+                          : 'N/A';
+                      } catch(e) { formattedStartTime = event.start_time || 'Invalid Date'; }
 
-        {/* Open Incidents Widget */}
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Stack direction="row" spacing={2} alignItems="center">
-                <Avatar sx={{ bgcolor: 'warning.light', color: 'warning.dark' }}><WarningIcon /></Avatar>
-                <Box>
-                  <Typography color="text.secondary" gutterBottom>Open Incidents</Typography>
-                  <Typography variant="h4">{openIncidentCount}</Typography>
-                </Box>
-              </Stack>
-            </CardContent>
-          </Card>
-        </Grid>
+                      return (
+                        <ListItem key={event.id} disableGutters dense>
+                          <ListItemText
+                            primary={event.title}
+                            secondary={`${formattedStartTime} ${event.location ? '@ ' + event.location : ''}`}
+                            primaryTypographyProps={{ variant: 'caption', fontWeight: 500, noWrap: true }}
+                            secondaryTypographyProps={{ variant: 'caption', color: 'text.secondary' }}
+                          />
+                        </ListItem>
+                      );
+                    })}
+                  </List>
+                ) : (
+                  <Typography variant="caption" color="text.secondary" sx={{display:'block', textAlign:'center', mt: 1}}>
+                      No upcoming events.
+                  </Typography>
+                )}
+             </SummaryWidget>
+          </Grid>
+      </Grid>
 
-        {/* Events Widget */}
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Stack direction="row" spacing={2} alignItems="center">
-                <Avatar sx={{ bgcolor: 'info.light', color: 'info.dark' }}><EventIcon /></Avatar>
-                <Box>
-                  <Typography color="text.secondary" gutterBottom>Upcoming Events</Typography>
-                  <Typography variant="h4">{eventCount}</Typography>
-                </Box>
-              </Stack>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* Staff Widget */}
-        <Grid item xs={12} sm={6} md={3}>
-          <Card>
-            <CardContent>
-              <Stack direction="row" spacing={2} alignItems="center">
-                 <Avatar sx={{ bgcolor: 'secondary.light', color: 'secondary.dark' }}><GroupIcon /></Avatar>
-                 <Box>
-                  <Typography color="text.secondary" gutterBottom>Active Staff</Typography>
-                  <Typography variant="h4">{staffCount}</Typography>
-                 </Box>
-              </Stack>
+      {/* Recent Activity Grids */}
+      <Grid container spacing={3} sx={{ mb: 3 }}>
+        {/* Recent Residents List - Refactored */}
+        <Grid item xs={12}> 
+          <Card elevation={2}> {/* Use Card instead of Paper */} 
+            <CardHeader 
+              title="Recent Residents"
+              action={
+                <Button 
+                  size="small" 
+                  endIcon={<ViewAllIcon />} 
+                  onClick={() => router.push('/dashboard/residents')}
+                >
+                  View All
+                </Button>
+              }
+              sx={{ pb: 0 }} // Remove bottom padding from header
+            />
+            <CardContent sx={{ pt: 1 }}> {/* Reduce top padding */} 
+              {residents.length === 0 ? (
+                 <Typography color="text.secondary">No residents found.</Typography>
+               ) : (
+                  <List dense disablePadding>
+                    {residents.slice(0, 5).map((resident) => {
+                       const name = resident.profiles?.full_name;
+                       const email = resident.profiles?.email;
+                       const profileId = resident.profiles?.id;
+                       return (
+                        <ListItem 
+                          key={resident.id} 
+                          disablePadding 
+                          button // Make item act like a button
+                          component={Link} // Use Link component for navigation
+                          href={`/dashboard/profile/${profileId}`} // Link destination
+                          sx={{ 
+                            borderRadius: 1, // Optional: round corners
+                            '&:hover': { bgcolor: 'action.hover' } // Hover effect
+                          }} 
+                        >
+                          <ListItemAvatar sx={{ pl: 1 }}> {/* Add padding */} 
+                            <Avatar sx={{ width: 32, height: 32, bgcolor: 'primary.light' }}>
+                               {name ? name[0]?.toUpperCase() : '-'}
+                            </Avatar>
+                          </ListItemAvatar>
+                          <ListItemText
+                            primary={name || `Profile ID: ${resident.profile_id}`}
+                            secondary={`Room ${resident.room_number || 'N/A'}`}
+                            primaryTypographyProps={{ fontWeight: 500, variant: 'body2' }}
+                            secondaryTypographyProps={{ variant: 'caption' }}
+                          />
+                          <Chip 
+                            label={resident.care_level || 'N/A'} 
+                            size="small" 
+                            variant="outlined" 
+                            sx={{ mr: 1 }} // Add margin
+                            color={resident.care_level === 'HIGH' ? 'error' : resident.care_level === 'MEDIUM' ? 'warning' : 'success'}
+                          />
+                        </ListItem>
+                       );
+                     })}
+                  </List>
+              )}
             </CardContent>
           </Card>
         </Grid>
       </Grid>
 
-      {/* Add the Dialog Components */}
+      {/* Events and Incidents Grids */}
+      <Grid container spacing={3} sx={{ mb: 3 }}>
+         {/* Upcoming Events Full List */}
+         <Grid item xs={12} md={6}>
+           <Paper sx={{ p: 2 }}>
+             <Typography variant="h6" gutterBottom>Upcoming Events</Typography>
+             {events.length > 0 ? (
+                  <List dense disablePadding sx={{maxHeight: 300, overflowY: 'auto'}}>
+                    {events.map(event => {
+                       let formattedStartTime = 'Invalid Date';
+                       try {
+                         formattedStartTime = event.start_time
+                           ? new Date(event.start_time).toLocaleString()
+                           : 'N/A';
+                       } catch(e) { formattedStartTime = event.start_time || 'Invalid Date'; }
+
+                      return (
+                        <ListItem key={event.id} disableGutters dense>
+                          <ListItemText
+                            primary={event.title}
+                            secondary={`${formattedStartTime} ${event.location ? '@ ' + event.location : ''}`}
+                            primaryTypographyProps={{ variant: 'body2', fontWeight: 500, noWrap: true }}
+                            secondaryTypographyProps={{ variant: 'caption', color: 'text.secondary' }}
+                          />
+                        </ListItem>
+                      );
+                    })}
+                  </List>
+                ) : (
+                  <Typography variant="caption" color="text.secondary" sx={{display:'block', textAlign:'center', mt: 1}}>
+                      No upcoming events.
+                  </Typography>
+                )}
+           </Paper>
+         </Grid>
+         {/* Recent Incidents - Corrected Structure */}
+         <Grid item xs={12} md={6}>
+           <Paper sx={{ p: 2 }}>
+             <Typography variant="h6" gutterBottom>Recent Incidents</Typography>
+             {incidents.length > 0 ? (
+                <List dense disablePadding sx={{maxHeight: 300, overflowY: 'auto'}}>
+                  {incidents.map((incident) => {
+                    let formattedIncidentTime = 'Invalid Date';
+                    try {
+                      formattedIncidentTime = incident.created_at
+                        ? new Date(incident.created_at).toLocaleString()
+                        : 'N/A';
+                    } catch(e) { formattedIncidentTime = incident.created_at || 'Invalid Date'; }
+
+                    return (
+                      <ListItem
+                        key={incident.id}
+                        disableGutters
+                        divider
+                        sx={{ alignItems: 'flex-start' }}
+                      >
+                        <ListItemIcon sx={{ minWidth: 32, mt: 0.5 }}>
+                          <Tooltip title={`Severity: ${incident.severity}`}>
+                            <WarningIcon fontSize="small" color={incident.severity === 'HIGH' ? 'error' : incident.severity === 'MEDIUM' ? 'warning' : 'inherit'} />
+                          </Tooltip>
+                        </ListItemIcon>
+                        <ListItemText
+                          primary={incident.title}
+                          secondary={`For: ${incident.residents?.profiles?.full_name || 'Unknown Resident'} - ${formattedIncidentTime}`}
+                          primaryTypographyProps={{ variant: 'body2', fontWeight: 500, noWrap: true }}
+                          secondaryTypographyProps={{ variant: 'caption', color: 'text.secondary' }}
+                        />
+                        <Chip
+                          label={incident.status}
+                          size="small"
+                          color={incident.status === 'OPEN' ? 'primary' : incident.status === 'RESOLVED' ? 'success' : 'default'}
+                          sx={{ ml: 1, mt: 0.5 }}
+                        />
+                      </ListItem>
+                    );
+                  })}
+                </List>
+              ) : (
+                <Typography variant="caption" color="text.secondary" sx={{display:'block', textAlign:'center', mt: 1}}>
+                    No recent incidents.
+                </Typography>
+              )}
+           </Paper>
+         </Grid>
+      </Grid>
+
+      {/* Dialog Components - Keep this section */}
       <CreateResidentDialog
         open={isCreateResidentDialogOpen}
         onClose={handleCloseCreateResidentDialog}
@@ -821,10 +803,10 @@ export default function DashboardPage() {
           open={isCreateIncidentDialogOpen}
           onClose={handleCloseCreateIncidentDialog}
           onSuccess={handleIncidentCreated}
-          residents={allResidentsForSelection}
-          assignees={potentialAssignees}
+          residents={allResidentsForDialog}
+          assignees={potentialAssigneesForDialog}
         />
       )}
     </Box>
   );
-} 
+}

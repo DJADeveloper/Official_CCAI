@@ -7,7 +7,7 @@ const inter = Inter({ subsets: ["latin"] });
 
 // Move metadata outside of the client component
 export const metadata: Metadata = {
-  title: "Assisted Living Facility Management System",
+  title: "Care Cloud AI - Assisted Living Management",
   description: "A comprehensive management system for assisted living facilities",
 };
 
